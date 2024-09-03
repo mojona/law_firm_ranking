@@ -1,4 +1,4 @@
-Code to reproduce the results from the paper **Addressing Information Asymmetry in Legal Disputes through Data-Driven Law Firm Rankings** (and link here).
+Code to reproduce the results from the paper **Addressing Information Asymmetry in Legal Disputes through Data-Driven Law Firm Rankings** ([preprint available](http://arxiv.org/abs/2408.16863)).
 
 ## File overview and instructions: 
 
