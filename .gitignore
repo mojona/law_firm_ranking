@@ -1,0 +1,8 @@
+config.json
+*.idea
+*.pyc
+*.egg*
+__pycache__/
+
+data/*
+!data/cases_subsample.csv.gz
