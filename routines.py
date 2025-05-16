@@ -113,57 +113,29 @@ def balance_dataframe(df_balancing, column_to_balance, random_state=42):
     return balanced_df                                                          # Return the balanced DataFrame
 
 
-def prediction_accuracy(testing_file,              run_id                 = 'run_1',         balancing     = False,
-                           included_firms = None,     included_intervals     = [(0, 1.0)],      external_data = False,
-                           pred_cases     = False,    return_bin_win_rate    = False):
+def prediction_accuracy(test_interactions,  scores,     priv_dict,      val_dict,
+                        balancing = False,  included_intervals = [(0, 1.0)], pred_cases = False):
     """
-    Predict outcomes for a test set of cases.
-    Unless external_data is provided, the function loads the fitted scores, privileges and valence probabilities from
-    csv files where run_id is the column identifier.
-    
-    1. Only consider firms that are in 'included_firms' (if provided).
-    2. For each row/interaction in testing_file, if both 'def' and 'pla' exist in the scores,
-       fetch their scores. Via the row's 'case_type', get the corresponding privilege shift and
-       valence probability. Adjust the defendant's score via privilege (defendant is privileged) and compute
-       the winning probability using a logistic function and a weighted combination.
-    3. Iterate over all rows of testing_file, and if both firms have scores, compute the predicted winning probability.
-    4. Compare the real winner and the predicted probability within the included_intervals, to compute accuracy.
+    This function computes the prediction accuracy of fitted AHPI parameters (scores, privileges, valence probabilities)
+    on test data (test_interactions).
+    This is done by computing the predicted winning probability for each interaction in test_interactions using the
+    generalized Bradley-Terry model underlying AHPI: First, the score of the defendant is shifted by the privilege
+    (depending on the case type). Second, a logistic function is applied to the difference between the adjusted
+    defendant's score and the plaintiff's score: The output is interpreted as teh defendant's probability of being
+    favoured. Third, the valence probability is used as the probability that the favoured individual is the winner.
 
-    :param run_id:              Column identifier of the fitted values to use for predictions
-    :param testing_file:        DataFrame of test cases with columns 'def', 'pla', 'case_type', 'winner'
-    :param balancing:           Boolean, if True, balance the test data
-    :param included_firms:      List of firms to include in the predictions, if None, all firms are included
+    :param test_interactions:   DataFrame of test cases with columns 'def', 'pla', 'case_type', 'winner' (0,1)
+    :param scores:              Series of fitted scores where the index is the firm name and the value is the score
+    :param priv_dict:           Dictionary of fitted privileges for each case type
+    :param val_dict:            Dictionary of fitted valence probabilities for each case type
+    :param balancing:           Boolean, if True, balance the test data so that the benchmark win rate is 0.5
     :param included_intervals:  List of intervals in which predict_proba must be to be included
-    :param external_data:       Tuple of (scores, privileges, valence probabilities, test_df) to use instead of loading
-                                from testing_file and fitted_scores, fitted_privileges, fitted_valence_probabs
-    :param return_bin_win_rate: Boolean, if True, return defendant win rate in the included intervals/bin
+    :param pred_cases:          Boolean, if True, compute accuracy for case (identified by id_number), not interactions
     :return:                    Accuracy, defendant win rate, number of test cases, excess accuracy(, binned win rate)
     """
     ####################################################################################################################
     # load data
-
-    if external_data:   # if external_data is provided, use it
-        scores, priv_dict, val_dict, test_df = external_data
-    else:               # else load data from csv files
-        ################################################################################################################
-        # load and format data
-        df_scores  = pd.read_csv(f'{get_dir()}fitted_scores.csv',           index_col=0)
-        df_priv    = pd.read_csv(f'{get_dir()}fitted_privileges.csv',       index_col=0)
-        df_valence = pd.read_csv(f'{get_dir()}fitted_valence_probabs.csv',  index_col=0)
-        
-        if included_firms is not None:                                      # If included_firms provided,
-            df_scores   = df_scores[df_scores.index.isin(included_firms)]   # keep firms contained in included_firms
-        scores          = df_scores[run_id]                                 # get fitted scores for run_id
-        priv_dict       = df_priv[run_id].to_dict()                         # get fitted privileges for run_id
-        val_dict        = df_valence[run_id].to_dict()                      # get fitted valence probas for run_id
-
-        ################################################################################################################
-        test_df             = testing_file.copy()                           # load test data
-
-        test_df['winner']   = test_df['predict_proba'].round().astype(int)  # rounds predict_proba to 0 or 1
-        test_df             = test_df.drop(columns=['predict_proba','proba_case_type','date'])# drop columns,'id_number'
-
-        test_df.loc[test_df['case_type'].isin(['real_property', 'prisoner_petitions']), 'case_type'] = 'other'
+    test_df = test_interactions.copy()
 
     ####################################################################################################################
     # compute predict proba and, as a benchmark, defendant_win_rate
@@ -206,17 +178,18 @@ def prediction_accuracy(testing_file,              run_id                 = 'run
         defendant_win_rate      = (test_df['winner'] == 0).mean()   # defendant win rate across all interactions
     
     ####################################################################################################################
-    # Construct the test dataframe
+    # Format the test dataframe
 
-    test_df                     = test_df.dropna(subset=['predict_proba'])   # keep only rows with predict_proba
+    test_df                     = test_df.dropna(subset=['predict_proba'])  # keep only rows with predict_proba
 
     if pred_cases:          # if pred_cases, average predict_proba and winner for every case (identified by id_number)
-        test_df = test_df.groupby('id_number', as_index=False)[['predict_proba', 'winner']].mean()
-
-    if balancing:   test_df = balance_dataframe(test_df, 'winner')          # if balancing, balance the test data
+        test_df                 = test_df.groupby('id_number', as_index=False)[['predict_proba', 'winner']].mean()
+    if balancing:   
+        test_df                 = balance_dataframe(test_df, 'winner')      # if balancing, balance the test data
 
     ####################################################################################################################
-    # Include only predictions in specified intervals 
+    # Filter to include only predictions in specified intervals
+
     def is_in_intervals(x, intervals):
         '''check if x is in any of the given intervals'''
         return any(lower <= x <= upper for lower, upper in intervals)
@@ -224,14 +197,15 @@ def prediction_accuracy(testing_file,              run_id                 = 'run
     filtered_df = test_df[test_df['predict_proba'].apply(lambda x: is_in_intervals(x, included_intervals))].copy()
 
     ####################################################################################################################
+    # Compute excess accuracy, accuracy, number of test cases, binned win rate
+
     filtered_df['predicted_winner'] = filtered_df['predict_proba'].round().astype(int) # Round predict proba to 0 or 1
 
     if filtered_df.empty:       # if no interactions in the specified intervals, return nan                              
         logging.info(f"No interactions in the specified intervals {included_intervals}.")
-        if return_bin_win_rate:     return np.nan, np.nan, np.nan, np.nan, np.nan
-        else:                       return np.nan, np.nan, np.nan, np.nan
+        return np.nan, np.nan, np.nan, np.nan, np.nan
 
-    excess_accuracy = (                                                                        # compute excess accuracy
+    excess_accuracy     = (                                                                    # compute excess accuracy
             (filtered_df['predicted_winner'] == (1 - filtered_df['winner'])).astype(float)
                 - defendant_win_rate * (filtered_df['predicted_winner'] == 1).astype(float)
             + (defendant_win_rate - 1) * (filtered_df['predicted_winner'] == 0).astype(float)).mean()
@@ -240,8 +214,6 @@ def prediction_accuracy(testing_file,              run_id                 = 'run
 
     card_tests          = len(filtered_df)                                                     # number of test cases
 
-    if return_bin_win_rate:              # if return_bin_win_rate, compute win rate for specific interval/bin
-        binned_win_rate = 1-filtered_df['winner'].mean()
-        return accuracy, defendant_win_rate, card_tests, excess_accuracy, binned_win_rate
-    else:
-        return accuracy, defendant_win_rate, card_tests, excess_accuracy
+    binned_win_rate     = 1-filtered_df['winner'].mean()                    # compute win rate for specific interval/bin
+
+    return accuracy, defendant_win_rate, card_tests, excess_accuracy, binned_win_rate
