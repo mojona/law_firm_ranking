@@ -11,7 +11,7 @@ import scipy.stats  as stats
 from scipy.special  import expit
 from scipy.optimize import fsolve
 
-from routines import get_dir
+from routines import get_dir, prediction_accuracy
 
 
 def AHPI(df_inter, MII=50, MIO=50, minimum_iterations=10, convergence_threshold=0.01, fit_valence_prob=True,
@@ -218,7 +218,7 @@ def AHPI(df_inter, MII=50, MIO=50, minimum_iterations=10, convergence_threshold=
     return exp_scores, val_probs, privileges
 
 
-def generate_synthetic_data(R, scores=(0,1,10), val_probs=(0.95,0.05,1), privileges=(0,1,1)):
+def generate_synthetic_data(R, scores=(0,1,10), val_probs=(0.95,0.05,1), privileges=(1.5,1,1)):
     '''
     This function generates synthetic data for R asymmetric heterogenous (Q types) pairwise interactions. The latent
     scores, valence probabilities and privileges are generated as normally distributed. The winner of an interaction is 
@@ -313,30 +313,46 @@ if __name__=='__main__':
 
     # Create synthatic data with known ground truth. We work with the exponential of the scores for convenience.
     ####################################################################################################################
-    scores                      =  (0,1,20) # mean, standard deviation, number of scores for synthetic data
-    R                           =  500      # number of interactions. Consequently, Q = 500/20 = 25
-    # generate synthetic data ( mean, sigma and cardinality for val_probs=(0.95,0.05,1), for privileges=(0,1,1) ))
-    df_inter, exp_scores, p, v  =  generate_synthetic_data(R = R, scores = scores)
-    _                           =  df_inter.to_csv(f'{get_dir()}synthetic_data.csv.gz', \
+    scores                          =  (0,1,20) # mean, standard deviation, number of scores for synthetic data
+    R                               =  500      # number of interactions. Consequently, Q = 500/20 = 25
+    # generate synthetic data ( mean, sigma and cardinality for val_probs=(0.95,0.05,1), for privileges=(1.5,1,1) ))
+    df_inter, exp_scores, pri, val  =  generate_synthetic_data(R = R, scores = scores)
+    _                               =  df_inter.to_csv(f'{get_dir()}synthetic_data.csv.gz', \
                                                    index=False, compression='gzip' )
-    exp_scores_df               =  pd.DataFrame.from_dict(exp_scores, orient='index', columns=["Exp Score"])
-    _                           =  exp_scores_df.to_csv(f'{get_dir()}synthetic_scores.csv.gz', \
+    exp_scores_df                   =  pd.DataFrame.from_dict(exp_scores, orient='index', columns=["Exp Score"])
+    _                               =  exp_scores_df.to_csv(f'{get_dir()}synthetic_scores.csv.gz', \
                                                     index = False, compression='gzip')
-    logging.info(f'Synthetic data generated with privilege {p[0]} and valence probability {v[0]}.')
+    # split into test and train data
+    train_inter, test_inter         = df_inter.iloc[:int(0.8*R)], df_inter.iloc[int(0.8*R):]
+    logging.info(f'Synthetic data generated with privilege {pri[0]} and valence probability {val[0]}.')
     
     # Estimating exponential scores via AHPI and calculating Kendall's tau between fitted and synthetic scores.
     ####################################################################################################################
-    scores_fit, val_prob_fit, _ =  AHPI(df_inter)
+    scores_fit, val_prob_fit, _     =  AHPI(train_inter)
 
     # Knowing that the ground truth has a valence probability > 0.5, we check if the fitted valence probability 
     # is < 0.5. In this case, all estimated values have to be transformed in line with AHPI's underlying symmetry.
     # For the (exponential) scores, this means that they have to be inverted.
     ####################################################################################################################
     if val_prob_fit[0] < 0.5:   # Case where the ranking is inverted. The ground truth has a valence probability > 0.5.
-        scores_fit = {key: value * -1 for key, value in scores_fit.items()}     # invert the scores
-    keys                        = scores_fit.keys() & exp_scores.keys()         # find common keys
-    fitted_values               = [scores_fit[key] for key in keys]             # ordered fitted values
-    exp_values                  = [exp_scores[key] for key in keys]             # ordered synthetic values
-    tau, p_value                = stats.kendalltau(fitted_values, exp_values)   # calculate Kendall's tau
+        scores_fit = {key: value * -1 for key, value in scores_fit.items()}         # invert the scores
+    keys                            = scores_fit.keys() & exp_scores.keys()         # find common keys
+    fitted_values                   = [scores_fit[key] for key in keys]             # ordered fitted values
+    exp_values                      = [exp_scores[key] for key in keys]             # ordered synthetic values
+    tau, p_value                    = stats.kendalltau(fitted_values, exp_values)   # calculate Kendall's tau
 
     logging.info(f"Kendall's tau: {tau}, p-value: {p_value}")
+
+    # Test the prediction accuracy of the fitted scores on the test data.
+    ####################################################################################################################
+    test_inter                      =\
+        test_inter.rename(columns={'priv': 'def', 'unpriv': 'pla', 'val_type': 'case_type', 'win_index': 'winner'})
+    series_exp_scores               = pd.Series(exp_scores)     # convert to series
+    series_scores                   = np.log(series_exp_scores) # transform from exp to scores
+    accuracy_0_1, benchmark, _,_,_  =\
+        prediction_accuracy(test_inter, series_scores, pri, val, included_intervals = [(0, 1.0)])   # accuracy overall
+    accuracy_08_1, _, _, _, _       =\
+        prediction_accuracy(test_inter, series_scores, pri, val, included_intervals = [(0.8, 1.0)]) # accuracy [0.8,1.0]
+    
+    logging.info(f"For a benchmark of {benchmark} the overall prediction accuracy on test data is {accuracy_0_1:.3f}.")
+    logging.info(f"The accuracy for predicted winning propensities in [0.8, 1.0] is {accuracy_08_1:.3f}.")
