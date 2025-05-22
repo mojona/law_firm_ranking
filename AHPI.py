@@ -14,60 +14,64 @@ from scipy.optimize import fsolve
 from routines import get_dir, prediction_accuracy
 
 
-def AHPI(df_inter, MII=50, MIO=50, minimum_iterations=10, convergence_threshold=0.01, fit_valence_prob=True,
+def AHPI(df, MII=50, MIO=50, minimum_iterations=10, convergence_threshold=0.01, fit_valence_prob=True,
          fit_privilege=True):
     '''
-    AHPI for asymmetric heterogenous pariwise interactions uses a generalized Bradley-Terry model to fit scores, valence
-    probabilities and privileges based on pairwise interactions of the form 'defendant, plaintiff, winner,
-    interaction_type'. The model is fitted using an Expectation-Maximization algorithm.
+    The AHPI (=asymmetric heterogenous pariwise interactions) algorithm uses a generalized Bradley-Terry model to fit
+    scores, valence probabilities and privileges based on pairwise interactions of the form 'privileged individual
+    (e.g. a defendant), unprivileged individual (e.g. a plaintiff), winner, interaction_type (e.g. the case type of a 
+    trial)'. The model is fitted using an Expectation-Maximization algorithm.
+    The algorithm iteratively updates all the fitted values (outer loop) and in each iteration updates the fitted
+    values. The fitting of the scores is done iteratively (inner loop).
 
-    :param df_inter:                Dataframe of pairwise interactions with columns 'priv', 'unpriv', 'win_index' (int),
+
+    :param df:                      Dataframe of pairwise interactions with columns 'priv', 'unpriv', 'win_index' (int),
                                     'val_type', 'priv_type' representing the privileged individual, unprivileged
                                     individual, index of winning individual (0=winner privileged or 1 else), valence
                                     type, privilege type
-    :param minimum_iterations:      Minimum iterations in either loop
-    :param MII:                     Maximum iterations inner loop
-    :param MIO:                     Maximum iterations outer loop
+    :param minimum_iterations:      Minimum iterations in inner and outer loop
+    :param MII:                     Maximum iterations in inner loop
+    :param MIO:                     Maximum iterations in outer loop
     :param convergence_threshold:   Convergence threshold for scores, valence probabilities, privileges
-    :param fit_valence_prob:        Boolean, determinig if the valence probability should be fitted or not
-    :param fit_privilege:           Boolean, determinig if the privilege should be fitted or not
+    :param fit_valence_prob:        Boolean, determinig if the valence probabilities should be fitted or set to 1
+    :param fit_privilege:           Boolean, determinig if the privileges should be fitted or set to 0
     :return:                        Dictionaries of exponentials of the scores, valence probabilities, privileges
     '''
 
-    df_inter = df_inter.copy()      # Create a copy of the DataFrame to avoid modifying the original one
+    df = df.copy()      # Create a copy of the DataFrame to avoid modifying the original one
 
     # create mappings: the assigned index will be the index also used when calling fitted scores, valence probabilities,
     # privileges
     ####################################################################################################################
-    indiv_map     = {value: idx for idx, value in enumerate(pd.concat([df_inter['priv'], df_inter['unpriv']]).unique())}
-    val_type_map  = {value: idx for idx, value in enumerate(df_inter['val_type'].unique())}
-    priv_type_map = {value: idx for idx, value in enumerate(df_inter['priv_type'].unique())}
+    indiv_map     = {value: idx for idx, value in enumerate(pd.concat([df['priv'], df['unpriv']]).unique())}
+    val_type_map  = {value: idx for idx, value in enumerate(df['val_type'].unique())}
+    priv_type_map = {value: idx for idx, value in enumerate(df['priv_type'].unique())}
 
     # create repositories for fitted ln scores, valence probabilities, privileges
     ####################################################################################################################
-    exp_scores  = np.full(len(indiv_map),0.9)                                        # dictionary for ln scores
+    exp_scores  = np.full(len(indiv_map),0.9)                                        # array for ln scores
     val_probs   = np.full(len(val_type_map),0.5) if fit_valence_prob \
-             else np.full(len(val_type_map),1.0)                                     # dictionary for valence probs
-    privileges  = np.full(len(priv_type_map),0.0)                                    # dictionary for privileges
+             else np.full(len(val_type_map),1.0)                                     # array for valence probs
+    privileges  = np.full(len(priv_type_map),0.0)                                    # array for privileges
 
     # Map the individuals, valence types and privilege types
     ####################################################################################################################
-    df_inter['priv']        = df_inter['priv'].map(indiv_map)
-    df_inter['unpriv']      = df_inter['unpriv'].map(indiv_map)
-    df_inter['val_type']    = df_inter['val_type'].map(val_type_map)
-    df_inter['priv_type']   = df_inter['priv_type'].map(priv_type_map)
+    df['priv']        = df['priv'].map(indiv_map)
+    df['unpriv']      = df['unpriv'].map(indiv_map)
+    df['val_type']    = df['val_type'].map(val_type_map)
+    df['priv_type']   = df['priv_type'].map(priv_type_map)
 
     # assign u (winning individual), v (losing individual), c for latter computations
     ####################################################################################################################
-    df_inter['u'] = np.where(df_inter['win_index'] == 0, df_inter['priv'],df_inter['unpriv'])
-    df_inter['v'] = np.where(df_inter['win_index'] == 1, df_inter['priv'],df_inter['unpriv'])
-    df_inter['c'] = np.where(df_inter['win_index'] == 0, -1, 1)
-    df_inter.drop(columns=['priv', 'unpriv'], inplace=True)
+    df['u'] = np.where(df['win_index'] == 0, df['priv'],df['unpriv'])
+    df['v'] = np.where(df['win_index'] == 1, df['priv'],df['unpriv'])
+    df['c'] = np.where(df['win_index'] == 0, -1, 1)
+    df.drop(columns=['priv', 'unpriv'], inplace=True)
 
     # initialise fitted valence probabilities and privileges with initial guesses
     ####################################################################################################################
-    df_inter['q']   = val_probs[df_inter['val_type']]
-    df_inter['eps'] = privileges[df_inter['priv_type']]
+    df['q']   = val_probs[df['val_type']]
+    df['eps'] = privileges[df['priv_type']]
 
     class ConvergenceChecker:
         '''
@@ -109,10 +113,9 @@ def AHPI(df_inter, MII=50, MIO=50, minimum_iterations=10, convergence_threshold=
             if self.loop_number < self.minimum_iterations: return 1, self.loop_number  # case: minimum iterations
 
             if len(self.old_lambdas) >= 3:  # Check if there are at least 3 iterations
-                kendall_corr_1 = stats.kendalltau(self.old_lambdas[-1], self.old_lambdas[-2])[0]
-                kendall_corr_2 = stats.kendalltau(self.old_lambdas[-2], self.old_lambdas[-3])[0]
+                kendall_corr = stats.kendalltau(self.old_lambdas[-1], self.old_lambdas[-2])[0]
 
-                if kendall_corr_1 > 0.999:  # Kendall_corr>0.999 and not changing
+                if kendall_corr > 0.999:  # Kendall_corr>0.999 and not changing
                     max_abs_diff_lambda     = max(abs(np.subtract(self.old_lambdas[-1], self.old_lambdas[-2])))
                     max_abs_diff_epsilon    = max(abs(np.subtract(self.old_epsilons[-1], self.old_epsilons[-2])))
                     max_abs_diff_q          = max(abs(np.subtract(self.old_q_s[-1], self.old_q_s[-2])))
@@ -124,36 +127,40 @@ def AHPI(df_inter, MII=50, MIO=50, minimum_iterations=10, convergence_threshold=
 
             return 1, self.loop_number  # Return the updated state
 
-    card_q_t        = df_inter['val_type'].value_counts().sort_index().values
+    card_q_t        = df['val_type'].value_counts().sort_index().values
     outer_checker   = ConvergenceChecker(maximum_iterations=MIO)
+
+    # Precompute indices for each individual for computational speed
+    precomputed_u = {idx: df.index[df['u'] == idx].to_numpy() for idx in range(len(exp_scores))}
+    precomputed_v = {idx: df.index[df['v'] == idx].to_numpy() for idx in range(len(exp_scores))}
 
     logging.info(f'Starting with the optimisation.')
     while True:   
 
         # assign current lambda of scores to u (winning individual), v (losing individual),
         ################################################################################################################
-        df_inter['lambda_u']    = exp_scores[df_inter['u']]
-        df_inter['lambda_v']    = exp_scores[df_inter['v']]
+        df['lambda_u']    = exp_scores[df['u']]
+        df['lambda_v']    = exp_scores[df['v']]
         
         # calculate pi
         ################################################################################################################
-        df_inter['pi'] = np.exp(df_inter['c'] * df_inter['eps'])    * df_inter['lambda_u'] * df_inter['q'] \
-                         / (df_inter['lambda_u'] * np.exp(df_inter['c'] * df_inter['eps']) * df_inter['q'] +
-                            df_inter['lambda_v'] * (1 - df_inter['q']))
+        df['pi'] = np.exp(df['c'] * df['eps'])    * df['lambda_u'] * df['q'] \
+                         / (df['lambda_u'] * np.exp(df['c'] * df['eps']) * df['q'] +
+                            df['lambda_v'] * (1 - df['q']))
         
         # fit valence probability
         ################################################################################################################
         if fit_valence_prob:
             for idx in range(len(val_probs)):
-                val_probs[idx] = df_inter.loc[df_inter['val_type'] == idx, 'pi'].sum() / card_q_t[idx]
-            df_inter['q'] = val_probs[df_inter['val_type']]
+                val_probs[idx] = df.loc[df['val_type'] == idx, 'pi'].sum() / card_q_t[idx]
+            df['q'] = val_probs[df['val_type']]
         
         # fit privileges
         ################################################################################################################
         if fit_privilege:
             for idx in range(len(privileges)):
-                mask = df_inter['priv_type'] == idx
-                df_idx = df_inter[mask]
+                mask   = df['priv_type'] == idx
+                df_idx = df[mask]
                 pi_idx, c_idx,lambda_u_idx,lambda_v_idx = \
                     df_idx['pi'], df_idx['c'],  df_idx['lambda_u'], df_idx['lambda_v']
                 def func_epsilon(x):
@@ -164,16 +171,15 @@ def AHPI(df_inter, MII=50, MIO=50, minimum_iterations=10, convergence_threshold=
 
                 privileges[idx] = fsolve(func_epsilon, 0.0)[0]
 
-            df_inter['eps'] = privileges[df_inter['priv_type']]
+            df['eps'] = privileges[df['priv_type']]
         
         # fit scores
         ################################################################################################################
         inner_checker = ConvergenceChecker(maximum_iterations=MII)
         while True:
             for idx in range(len(exp_scores)):
-                ###
-                df_u_r          = df_inter.query('u == @idx')
-                df_v_r          = df_inter.query('v == @idx')
+                df_u_r          = df.loc[precomputed_u[idx]]
+                df_v_r          = df.loc[precomputed_v[idx]]
                 # convert to arrays
                 win_index_u_r   = df_u_r['win_index'].values
                 eps_u_r         = df_u_r['eps'].values
@@ -200,8 +206,8 @@ def AHPI(df_inter, MII=50, MIO=50, minimum_iterations=10, convergence_threshold=
 
         converged_o,_  = outer_checker.update(exp_scores,privileges,val_probs)
 
-        current_val_probs   =   {k: val_probs[v]      for k, v in val_type_map.items()}
-        current_privileges  =   {k:-privileges[v]     for k, v in priv_type_map.items()}
+        current_val_probs   =   {type: val_probs[v]      for type, v in val_type_map.items()}
+        current_privileges  =   {type:-privileges[v]     for type, v in priv_type_map.items()}
         logging.info(f'Reached iteration {_}. '
                      f'Current valence probabilities: {current_val_probs}. '
                      f'Current privileges: {current_privileges}. ')
@@ -211,9 +217,9 @@ def AHPI(df_inter, MII=50, MIO=50, minimum_iterations=10, convergence_threshold=
 
     # convert scores, valence probabilities, privileges back to the original values
     ####################################################################################################################
-    exp_scores  = {k: exp_scores[v]     for k, v in indiv_map.items()}
-    val_probs   = {k: val_probs[v]      for k, v in val_type_map.items()}
-    privileges  = {k:-privileges[v]     for k, v in priv_type_map.items()}
+    exp_scores  = {individual: exp_scores[v]     for individual, v  in indiv_map.items()}
+    val_probs   = {type:       val_probs[v]      for type, v        in val_type_map.items()}
+    privileges  = {type:      -privileges[v]     for type, v        in priv_type_map.items()}
 
     return exp_scores, val_probs, privileges
 
@@ -277,7 +283,7 @@ def generate_synthetic_data(R, scores=(0,1,10), val_probs=(0.95,0.05,1), privile
 
         interactions.append((priv, unpriv, val_type, priv_type))
 
-    df_inter = pd.DataFrame(interactions, columns=['priv', 'unpriv', 'val_type', 'priv_type'])
+    df = pd.DataFrame(interactions, columns=['priv', 'unpriv', 'val_type', 'priv_type'])
     
     # calculate winning probabilities and determine winners
     ####################################################################################################################
@@ -285,7 +291,7 @@ def generate_synthetic_data(R, scores=(0,1,10), val_probs=(0.95,0.05,1), privile
     for i in range(R):
         # Extract individuals, privilege type, valence type from every interaction
         priv,                                        unpriv,                   priv_type,                   val_type = \
-           df_inter.loc[i, 'priv'], df_inter.loc[i, 'unpriv'], df_inter.loc[i, 'priv_type'], df_inter.loc[i, 'val_type']
+           df.loc[i, 'priv'], df.loc[i, 'unpriv'], df.loc[i, 'priv_type'], df.loc[i, 'val_type']
 
         p_favoured = expit(scores[priv] + privileges[priv_type] - scores[unpriv])   # sigmoid of scores with privilege:
         if np.random.rand() < p_favoured: favoured, unfavoured = priv,      unpriv  # used this as proba to assign
@@ -297,8 +303,8 @@ def generate_synthetic_data(R, scores=(0,1,10), val_probs=(0.95,0.05,1), privile
         win_idx = np.random.choice([favoured, unfavoured], p=[fav_win_prob, 1 - fav_win_prob])
         win_index.append(0 if win_idx == priv else 1)
 
-    df_inter['win_index'] = win_index       # integrate winner into df_inter
-    df_inter=df_inter[['priv', 'unpriv', 'win_index', 'val_type', 'priv_type']]     # reorder columns
+    df['win_index'] = win_index       # integrate winner into df
+    df=df[['priv', 'unpriv', 'win_index', 'val_type', 'priv_type']]     # reorder columns
 
     # create dictionaries for exp_scores, fitted privileges, fitted valence probabilities
     ####################################################################################################################
@@ -306,7 +312,7 @@ def generate_synthetic_data(R, scores=(0,1,10), val_probs=(0.95,0.05,1), privile
     fitted_privileges   = {idx: priv for idx, priv in enumerate(privileges)}# Dictionary for fitted privileges
     fitted_val_probs    = {idx: val for idx, val in enumerate(val_probs)}   # Dictionary of fitted valence probabilities
 
-    return df_inter, exp_scores, fitted_privileges, fitted_val_probs
+    return df, exp_scores, fitted_privileges, fitted_val_probs
 
 
 if __name__=='__main__':
@@ -316,14 +322,14 @@ if __name__=='__main__':
     scores                          =  (0,1,20) # mean, standard deviation, number of scores for synthetic data
     R                               =  500      # number of interactions. Consequently, Q = 500/20 = 25
     # generate synthetic data ( mean, sigma and cardinality for val_probs=(0.95,0.05,1), for privileges=(1.5,1,1) ))
-    df_inter, exp_scores, pri, val  =  generate_synthetic_data(R = R, scores = scores)
-    _                               =  df_inter.to_csv(f'{get_dir()}synthetic_data.csv.gz', \
+    df, exp_scores, pri, val  =  generate_synthetic_data(R = R, scores = scores)
+    _                               =  df.to_csv(f'{get_dir()}synthetic_data.csv.gz', \
                                                    index=False, compression='gzip' )
     exp_scores_df                   =  pd.DataFrame.from_dict(exp_scores, orient='index', columns=["Exp Score"])
     _                               =  exp_scores_df.to_csv(f'{get_dir()}synthetic_scores.csv.gz', \
                                                     index = False, compression='gzip')
     # split into test and train data
-    train_inter, test_inter         = df_inter.iloc[:int(0.8*R)], df_inter.iloc[int(0.8*R):]
+    train_inter, test_inter         = df.iloc[:int(0.8*R)], df.iloc[int(0.8*R):]
     logging.info(f'Synthetic data generated with privilege {pri[0]} and valence probability {val[0]}.')
     
     # Estimating exponential scores via AHPI and calculating Kendall's tau between fitted and synthetic scores.

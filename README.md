@@ -1,32 +1,10 @@
 # Data-Driven Law Firm Rankings to Reduce Information Asymmetry in Legal Disputes
 
-Code to reproduce the results from the paper ([preprint available](http://arxiv.org/abs/2408.16863)).
-
-## File overview and instructions: 
-
-* Set up the environment with the environment.yml and activate with "conda activate law_firm_ranking".
-* "config.json" stores the path to the data folder where cases_df.csv.gz is stored. Please add this path to "config.json.example" and rename it "config.json".
-* "routines.py" lists routines used to convert raw data into pairwise interactions as well as a function used to test AHPI's prediction accuracy on test data. The cases_df.csv.gz added to this repo contains only a subset of the data for testing purposes. Our full source data will be made public upon publication.
-* "AHPI.py" implements the AHPI algorithm which generalizes the Bradley-Terry model. This represents the core implementation of our paper. As an illustration, we fit AHPI on synthetic data with known ground truth and compare fitted to true scores using correlations.
-* "extraction_clustering.py" extracts and clusters the roles and law firms from the attorney strings in the cases_df. The file appends additional columns to cases_df.csv.gz which contain information on the names and roles of the law firms involved.
-* "case_fitting.py" uses the AHPI to fit scores, valence probabilities and privileges for the cases in cases_df.csv.gz. With these fitted values, the generalized Bradley-Terry model underlying the AHPI algorithm can be used to predict outcomes of cases with known law firms and case types.
-* "cases_df.csv.gz" is a subsample of cases_df.csv.gz and serves to test the implementation. The full dataset will be made available upon publication.
-* "exp_scores.csv.gz" is generated via "case_fitting.py" and contains fitted exponential scores of all legal cases.
-* "synthetic_data.csv.gz" and "synthetic_scores.csv.gz" can be generated via "AHPI.py" and contain synthetic pairwise interactions and synthetic scores respectively.
-
-Reach out to slera@mit.edu in case of any issues.
-
-
-
-
-
-# Data-Driven Law Firm Rankings to Reduce Information Asymmetry in Legal Disputes
-
 This repository contains code to reproduce the results from our paper  
 **[Data-Driven Law Firm Rankings to Reduce Information Asymmetry in Legal Disputes](http://arxiv.org/abs/2408.16863)**.
 
-We present a ranking algorithm **AHPI** which assigns scores to entities (e.g. law firms) competing against each other in pairwise interactions (e.g. trials). In 2022, the case where these pairwise interactions are of different “types” (e.g. civil rights trials as opposed to torts trials)<sup>1</sup>  has been addressed with an algorithm based on the Bradley–Terry model. **AHPI** generalizes this 2022 algorithm to account for asymmetry in interactions (e.g. a defendant has a priori higher winning odds than the plaintiff).  
-We assign strength scores to law firms based on historical outcomes.
+We present a ranking algorithm **AHPI** which assigns scores to entities (e.g. law firms) competing against each other in pairwise interactions (e.g. trials). The pairwise interactions can be of different “types” (e.g. civil rights trials as opposed to torts trials)<sup>1</sup>  and include asymmetry (e.g. in a trial a defendant has a priori higher winning odds than the plaintiff).  
+We assign strength scores to law firms based on historical outcomes. **AHPI** is based on a generalised Bradley-Terry model.
 
 ---
 
@@ -61,6 +39,16 @@ We assign strength scores to law firms based on historical outcomes.
 An example illustrating the use of AHPI on synthetic data is given in `AHPI.py` and below.
 
 ```python
+import logging
+import pandas       as pd
+import numpy        as np
+import scipy.stats  as stats
+
+from scipy.special  import expit
+from scipy.optimize import fsolve
+
+from routines       import get_dir, prediction_accuracy
+from AHPI           import*
 
 # Create synthatic data with known ground truth. We work with the exponential of the scores for convenience.
 ####################################################################################################################
@@ -109,11 +97,6 @@ logging.info(f"For a benchmark of {benchmark} the overall prediction accuracy on
 logging.info(f"The accuracy for predicted winning propensities in [0.8, 1.0] is {accuracy_08_1:.3f}.")
 ````````
 ---
-
-## References
-
-[1]: M. E. J. Newman, Ranking with multiple types of pairwise comparisons,
-Proceedings of the Royal Society A 478 (2266) (2022) 20220517.
 
 ## Questions?
 
