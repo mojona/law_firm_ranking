@@ -9,3 +9,5 @@ dependencies:
   - scikit-learn
   - rapidfuzz
   - pip
+  - pip:
+      - git+https://github.com/mojona/AHPI.git@main

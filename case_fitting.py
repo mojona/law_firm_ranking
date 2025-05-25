@@ -7,8 +7,8 @@ import logging
 
 import pandas as pd
 
-from AHPI     import AHPI
-from routines import get_dir, Q_fact_games
+from AHPI       import AHPI
+from routines   import get_dir, Q_fact_games
 
 def convert_to_interactions():
     '''

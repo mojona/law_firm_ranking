@@ -4,7 +4,7 @@ This repository contains code to reproduce the results from our paper
 **[Data-Driven Law Firm Rankings to Reduce Information Asymmetry in Legal Disputes](http://arxiv.org/abs/2408.16863)**.
 
 We present a ranking algorithm **AHPI** which assigns scores to entities (e.g. law firms) competing against each other in pairwise interactions (e.g. trials). The pairwise interactions can be of different “types” (e.g. civil rights trials as opposed to torts trials)<sup>1</sup>  and include asymmetry (e.g. in a trial a defendant has a priori higher winning odds than the plaintiff).  
-We assign strength scores to law firms based on historical outcomes. **AHPI** is based on a generalised Bradley-Terry model.
+We assign strength scores to law firms based on historical outcomes. **AHPI** is based on a generalised Bradley-Terry model and is implemented in **[AHPI](https://github.com/mojona/AHPI)**.
 
 ---
 
@@ -26,7 +26,7 @@ We assign strength scores to law firms based on historical outcomes. **AHPI** is
 
 - `routines.py`: Contains helper routines for data preprocessing and for testing the prediction performance of AHPI.
 
-- `AHPI.py`: Core implementation of the **AHPI algorithm**. Includes functionality to generate synthetic datasets with known ground truth, fit AHPI, and evaluate performance.
+- `run_AHPI.py`: Core application of the **AHPI algorithm**. Includes functionality to generate synthetic datasets with known ground truth, fit AHPI, and evaluate performance.
 
 - `extraction_clustering.py`: Extracts law firm and role information from the attorney strings in the case data and appends this structured metadata to `cases_df`.
 
@@ -45,10 +45,9 @@ import numpy        as np
 import scipy.stats  as stats
 
 from scipy.special  import expit
-from scipy.optimize import fsolve
 
 from routines       import get_dir, prediction_accuracy
-from AHPI           import*
+from AHPI           import AHPI
 
 # Create synthatic data with known ground truth. We work with the exponential of the scores for convenience.
 ####################################################################################################################
