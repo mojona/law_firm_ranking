@@ -3,8 +3,7 @@
 This repository contains code to reproduce the results from our paper  
 **[Data-Driven Law Firm Rankings to Reduce Information Asymmetry in Legal Disputes](http://arxiv.org/abs/2408.16863)**.
 
-We present a ranking algorithm **AHPI** which assigns scores to entities (e.g. law firms) competing against each other in pairwise interactions (e.g. trials). The pairwise interactions can be of different “types” (e.g. civil rights trials as opposed to torts trials)<sup>1</sup>  and include asymmetry (e.g. in a trial a defendant has a priori higher winning odds than the plaintiff).  
-We assign strength scores to law firms based on historical outcomes. **AHPI** is based on a generalised Bradley-Terry model and is implemented in **[AHPI](https://github.com/mojona/AHPI)**.
+We present a law firm ranking grounded in historical trials. First, we present the extraction of law firm names from legal opinions. Together with the outcome (e. g. defendant wins) and the case type (e.g. civil rights), trials can be interpreted as pairwise interactions between law firms. Second, we use an algorithm which we call **AHPI** (see the repository [AHPI](https://github.com/mojona/AHPI)) to assign strength scores to law firms based on historical trials. **AHPI** is based on a generalised Bradley-Terry model. The fitted scores can be used to make trial outcome predictions, which significantly outperform the benchmark "defendant always wins".
 
 ---
 
